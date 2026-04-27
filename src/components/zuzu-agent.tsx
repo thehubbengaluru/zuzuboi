@@ -228,8 +228,7 @@ export function ZuzuAgent() {
       const question = questions[currentIndex];
       submitInFlightRef.current = true;
 
-      const nextAnswers: Answers = { ...answersRef.current, [question.key]: value };
-      setAnswers(nextAnswers);
+      // Show raw input in chat — extraction happens after AI responds
       addMessage("user", value);
       setDraft("");
       setDraftError(null);
@@ -249,6 +248,11 @@ export function ZuzuAgent() {
             nextQuestionBase: nextQuestion.prompt
           });
           setThinking(false);
+
+          // Store the clean extracted value; fall back to raw if AI didn't return one
+          const storedValue = aiReaction?.extractedValue?.trim() || value;
+          const nextAnswers: Answers = { ...answersRef.current, [question.key]: storedValue };
+          setAnswers(nextAnswers);
 
           const { display: reactionDisplay, spoken: reactionSpoken } = aiReaction ?? getReaction(question.key, value);
           const spokenNextQuestion = aiReaction?.nextQuestion ?? nextQuestion.prompt;
@@ -279,6 +283,21 @@ export function ZuzuAgent() {
           }
           return;
         }
+
+        // Last question — fetch reaction for extraction too
+        setThinking(true);
+        const lastReaction = await fetchReaction({
+          key: question.key,
+          question: question.prompt,
+          answer: value,
+          name: answersRef.current.name || undefined,
+          priorAnswers: answersRef.current
+        });
+        setThinking(false);
+
+        const storedValue = lastReaction?.extractedValue?.trim() || value;
+        const nextAnswers: Answers = { ...answersRef.current, [question.key]: storedValue };
+        setAnswers(nextAnswers);
 
         setCompleted(true);
         await finishApplication(nextAnswers);
@@ -792,7 +811,7 @@ async function fetchReaction({
   name?: string;
   priorAnswers?: Answers;
   nextQuestionBase?: string;
-}): Promise<(Reaction & { nextQuestion?: string }) | null> {
+}): Promise<(Reaction & { nextQuestion?: string; extractedValue?: string }) | null> {
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
@@ -800,9 +819,9 @@ async function fetchReaction({
       body: JSON.stringify({ key, question, answer, name, priorAnswers, nextQuestionBase })
     });
     if (!response.ok) return null;
-    const data = (await response.json()) as { reaction?: string; nextQuestion?: string };
+    const data = (await response.json()) as { reaction?: string; nextQuestion?: string; extractedValue?: string };
     if (!data.reaction) return null;
-    return { display: data.reaction, spoken: data.reaction, nextQuestion: data.nextQuestion };
+    return { display: data.reaction, spoken: data.reaction, nextQuestion: data.nextQuestion, extractedValue: data.extractedValue };
   } catch {
     return null;
   }

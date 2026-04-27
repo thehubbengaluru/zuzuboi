@@ -27,7 +27,17 @@ How to respond:
 - React to what they actually said — pick up on something specific, surprising, or interesting in their answer.
 - If their answer is thin, gently nudge. If it's rich, show you caught it.
 - Keep the reaction to 1-2 sentences. Make them feel heard.
-- If a next question base is provided, rephrase it to feel natural and contextual given what you know about this person. Keep the same intent but make it feel like a real follow-up, not a form field. Same length or shorter.`;
+- If a next question base is provided, rephrase it to feel natural and contextual given what you know about this person. Keep the same intent but make it feel like a real follow-up, not a form field. Same length or shorter.
+
+Extracted value rules — strip all conversational filler, keep only the core fact:
+- name → just the name ("Ashes", not "my name is Ashes" or "hi I'm Ashes")
+- contact → just the email address or phone number
+- location → just the city and country ("Mumbai, India")
+- residency → the specific residency track or name they mentioned
+- motivation → the actual reason, 1-2 tight sentences, no "I think" / "well" / "honestly" openers
+- work → what they're building, concise — drop "I'm working on" / "basically it's" type prefixes
+- availability → just the timeframe ("from June 2025", "immediately", "3 months")
+- video → just the URL, nothing else`;
 
 type ChatBody = {
   key: string;
@@ -48,12 +58,16 @@ const respondTool: Anthropic.Tool = {
         type: "string",
         description: "Zuzu's reaction to the answer. 1-2 sentences, spoken aloud, sassy and warm."
       },
+      extractedValue: {
+        type: "string",
+        description: "The core answer stripped of all conversational filler — just the fact itself (name, email, city, URL, tight summary). This is what gets stored."
+      },
       nextQuestion: {
         type: "string",
         description: "Rephrased version of the next question that feels natural given the applicant's context. Only included if a base question was provided."
       }
     },
-    required: ["reaction"]
+    required: ["reaction", "extractedValue"]
   }
 };
 
@@ -95,7 +109,7 @@ export async function POST(request: Request) {
   try {
     const message = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 200,
+      max_tokens: 350,
       system: SYSTEM_PROMPT,
       tools: [respondTool],
       tool_choice: { type: "tool", name: "respond" },
@@ -105,11 +119,12 @@ export async function POST(request: Request) {
     const toolUse = message.content.find((b) => b.type === "tool_use");
     if (!toolUse || toolUse.type !== "tool_use") throw new Error("No tool use in response.");
 
-    const output = toolUse.input as { reaction?: string; nextQuestion?: string };
+    const output = toolUse.input as { reaction?: string; extractedValue?: string; nextQuestion?: string };
     if (!output.reaction) throw new Error("Empty reaction.");
 
     return NextResponse.json({
       reaction: output.reaction.trim(),
+      extractedValue: output.extractedValue?.trim() ?? null,
       nextQuestion: output.nextQuestion?.trim() ?? null
     });
   } catch (error) {
