@@ -1,12 +1,13 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type Answers, emptyAnswers, questions } from "@/config/questions";
 import { useRecorder } from "@/hooks/use-recorder";
 import { useZuzuVoice, type BarkType } from "@/hooks/use-zuzu-voice";
 import { validateAnswer } from "@/lib/validation";
 import { questionMood, reactionMood, resultMood, withMood } from "@/lib/voice-mood";
 import { VoiceMode } from "./voice-mode";
+import { SplashScreen } from "./splash-screen";
 import {
   MicIcon,
   SendIcon,
@@ -45,13 +46,12 @@ export function ZuzuAgent() {
   const [draftError, setDraftError] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
   const [completed, setCompleted] = useState(false);
+  const [splashDone, setSplashDone] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [voiceModeOpen, setVoiceModeOpen] = useState(false);
-  const [voiceModeShowStart, setVoiceModeShowStart] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const autoOpenedRef = useRef(false);
   const partialSavedRef = useRef(false);
   const [configState, setConfigState] = useState<ConfigState>("loading");
   const [config, setConfig] = useState<AppConfig>({
@@ -205,15 +205,6 @@ export function ZuzuAgent() {
     }
   }, [configState, config.scribeConfigured, voice]);
 
-  // Auto-open voice mode when config loads (if Scribe is available)
-  useEffect(() => {
-    if (configState !== "ready") return;
-    if (!config.scribeConfigured) return;
-    if (autoOpenedRef.current) return;
-    autoOpenedRef.current = true;
-    setVoiceModeShowStart(true);
-    setVoiceModeOpen(true);
-  }, [configState, config.scribeConfigured]);
 
   const handleVoiceModeStart = useCallback(() => {
     voice.primeAudioContext();
@@ -297,7 +288,7 @@ export function ZuzuAgent() {
     [voice]
   );
 
-  async function submitAnswer(event: FormEvent<HTMLFormElement>) {
+  async function submitAnswer(event: { preventDefault(): void }) {
     event.preventDefault();
     if (completed || submitting || submitInFlightRef.current) return;
 
@@ -442,8 +433,9 @@ export function ZuzuAgent() {
     if (!config.scribeConfigured) return;
     if (composerRecorder.state === "recording") composerRecorder.stop();
     voice.primeAudioContext();
-    setVoiceModeShowStart(false);
     setVoiceModeOpen(true);
+    const q = questions[indexRef.current];
+    void voice.speak(withMood(questionMood(q.key), q.prompt), indexRef.current === 0 ? "happy" : false);
   }
 
   const speakError = useCallback(
@@ -475,8 +467,11 @@ export function ZuzuAgent() {
         ? "Sniffing"
         : "Talk";
 
+  const handleSplashComplete = useCallback(() => setSplashDone(true), []);
+
   return (
     <main className="app-shell">
+      {!splashDone && <SplashScreen onComplete={handleSplashComplete} />}
       <section className="agent-panel" aria-label="Zuzu residency application chat">
         <header className="topbar">
           <div className="brand-lockup" aria-label="Zuzu residency agent">
@@ -702,7 +697,7 @@ export function ZuzuAgent() {
           thinking={thinking}
           completed={completed}
           scribeAvailable={config.scribeConfigured}
-          showStartScreen={voiceModeShowStart}
+          showStartScreen={false}
           validate={validateAnswer}
           speakError={speakError}
           submitValue={submitValue}
