@@ -25,6 +25,8 @@ const BARK_PROMPTS: Record<BarkType, string> = {
 
 const AUDIO_TIMEOUT_MS = 90000;
 
+type AbortRef = { current: (() => void) | null };
+
 export function useZuzuVoice({ elevenLabsConfigured, muted, onElevenLabsFailure }: Options) {
   const [voiceStatus, setVoiceStatus] = useState("voice ready");
   const [speaking, setSpeaking] = useState(false);
@@ -34,6 +36,8 @@ export function useZuzuVoice({ elevenLabsConfigured, muted, onElevenLabsFailure 
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const mountedRef = useRef(true);
+  const speakIdRef = useRef(0);
+  const abortCurrentRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -62,13 +66,25 @@ export function useZuzuVoice({ elevenLabsConfigured, muted, onElevenLabsFailure 
   const speak = useCallback(
     async (text: string, barkType: BarkType | false = false) => {
       if (muted) return;
+
+      // Preempt any in-flight audio
+      abortCurrentRef.current?.();
+      abortCurrentRef.current = null;
+      window.speechSynthesis?.cancel();
+
+      speakIdRef.current += 1;
+      const myId = speakIdRef.current;
+      const isStale = () => speakIdRef.current !== myId;
+
       setVoiceStatus("speaking");
       setSpeaking(true);
 
       try {
         if (barkType) {
-          await playBark(barkCacheRef, barkType, audioContextRef, analyserRef, setOutputAmplitude);
+          await playBark(barkCacheRef, barkType, audioContextRef, analyserRef, setOutputAmplitude, abortCurrentRef);
+          if (isStale()) return;
           await delay(120);
+          if (isStale()) return;
         }
 
         if (elevenLabsConfigured) {
@@ -78,29 +94,35 @@ export function useZuzuVoice({ elevenLabsConfigured, muted, onElevenLabsFailure 
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ text: readableSpeech(text) })
             });
+            if (isStale()) return;
             if (!response.ok) {
               const detail = await response.text().catch(() => "");
               throw new Error(`TTS ${response.status}: ${detail.slice(0, 200)}`);
             }
             const blob = await response.blob();
+            if (isStale()) return;
             const url = URL.createObjectURL(blob);
             try {
-              await playWithAnalyser(url, audioContextRef, analyserRef, setOutputAmplitude);
+              await playWithAnalyser(url, audioContextRef, analyserRef, setOutputAmplitude, abortCurrentRef);
             } finally {
               URL.revokeObjectURL(url);
             }
+            if (isStale()) return;
             if (mountedRef.current) setVoiceStatus("ElevenLabs on");
             return;
           } catch (error) {
+            if (isStale()) return;
             console.error("[Zuzu] ElevenLabs TTS failed:", error);
             onElevenLabsFailure();
           }
         }
 
+        if (isStale()) return;
         await speakWithBrowser(readableSpeech(text), setOutputAmplitude);
+        if (isStale()) return;
         if (mountedRef.current) setVoiceStatus(muted ? "muted" : "browser voice");
       } finally {
-        if (mountedRef.current) {
+        if (mountedRef.current && !isStale()) {
           setSpeaking(false);
           setOutputAmplitude(0);
         }
@@ -110,6 +132,8 @@ export function useZuzuVoice({ elevenLabsConfigured, muted, onElevenLabsFailure 
   );
 
   const cancel = useCallback(() => {
+    abortCurrentRef.current?.();
+    abortCurrentRef.current = null;
     if (typeof window !== "undefined") {
       window.speechSynthesis?.cancel();
     }
@@ -158,7 +182,8 @@ async function playWithAnalyser(
   url: string,
   audioContextRef: { current: AudioContext | null },
   analyserRef: { current: AnalyserNode | null },
-  setAmplitude: (value: number) => void
+  setAmplitude: (value: number) => void,
+  abortCurrentRef: AbortRef
 ) {
   return new Promise<void>((resolve, reject) => {
     const audio = new Audio(url);
@@ -183,6 +208,9 @@ async function playWithAnalyser(
     };
     audio.onended = () => finish();
     audio.onerror = () => finish(new Error("audio error"));
+
+    // Register abort so a new speak() call can stop this audio immediately
+    abortCurrentRef.current = () => finish();
 
     (async () => {
       const ctx = ensureAudioContext(audioContextRef, analyserRef);
@@ -290,9 +318,10 @@ async function playBark(
   barkType: BarkType,
   audioContextRef: { current: AudioContext | null },
   analyserRef: { current: AnalyserNode | null },
-  setAmplitude: (value: number) => void
+  setAmplitude: (value: number) => void,
+  abortCurrentRef: AbortRef
 ) {
-  const generated = await playGeneratedBark(barkCacheRef, barkType, audioContextRef, analyserRef, setAmplitude);
+  const generated = await playGeneratedBark(barkCacheRef, barkType, audioContextRef, analyserRef, setAmplitude, abortCurrentRef);
   if (generated) return;
 
   try {
@@ -335,12 +364,13 @@ async function playGeneratedBark(
   barkType: BarkType,
   audioContextRef: { current: AudioContext | null },
   analyserRef: { current: AnalyserNode | null },
-  setAmplitude: (value: number) => void
+  setAmplitude: (value: number) => void,
+  abortCurrentRef: AbortRef
 ) {
   try {
     const cached = barkCacheRef.current.get(barkType);
     if (cached) {
-      await playWithAnalyser(cached, audioContextRef, analyserRef, setAmplitude);
+      await playWithAnalyser(cached, audioContextRef, analyserRef, setAmplitude, abortCurrentRef);
       return true;
     }
     const response = await fetch("/api/sfx", {
@@ -352,7 +382,7 @@ async function playGeneratedBark(
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     barkCacheRef.current.set(barkType, url);
-    await playWithAnalyser(url, audioContextRef, analyserRef, setAmplitude);
+    await playWithAnalyser(url, audioContextRef, analyserRef, setAmplitude, abortCurrentRef);
     return true;
   } catch {
     return false;

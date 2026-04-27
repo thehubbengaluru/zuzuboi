@@ -492,7 +492,7 @@ export function ZuzuAgent() {
 
   return (
     <main className="app-shell">
-      {!splashDone && <SplashScreen onComplete={handleSplashComplete} />}
+      {!splashDone && <SplashScreen onComplete={handleSplashComplete} onReady={voice.primeAudioContext} />}
       <section className="agent-panel" aria-label="Zuzu residency application chat">
         <header className="topbar">
           <div className="brand-lockup" aria-label="Zuzu residency agent">
