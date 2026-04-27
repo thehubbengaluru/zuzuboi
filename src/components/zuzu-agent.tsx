@@ -193,17 +193,19 @@ export function ZuzuAgent() {
     if (configState !== "ready") return;
     if (askedFirstQuestionRef.current) return;
     askedFirstQuestionRef.current = true;
-    const startQuestion = questions[indexRef.current];
-    addMessage("zuzu", startQuestion.prompt);
-    // If scribe is configured, voice mode will auto-open and re-speak on user's first tap.
-    // Otherwise speak now (chat-only mode, user has likely already interacted).
-    if (!config.scribeConfigured) {
-      void voice.speak(
-        withMood(questionMood(startQuestion.key), startQuestion.prompt),
-        indexRef.current === 0 ? "happy" : false
-      );
-    }
-  }, [configState, config.scribeConfigured, voice]);
+    addMessage("zuzu", questions[indexRef.current].prompt);
+  }, [configState]);
+
+  // After splash contracts, play bark then speak the first question
+  const autoSpokeRef = useRef(false);
+  useEffect(() => {
+    if (!splashDone) return;
+    if (configState !== "ready") return;
+    if (autoSpokeRef.current) return;
+    autoSpokeRef.current = true;
+    const q = questions[0];
+    void voice.speak(withMood(questionMood(q.key), q.prompt), "happy");
+  }, [splashDone, configState, voice]);
 
 
   const handleVoiceModeStart = useCallback(() => {
