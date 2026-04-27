@@ -12,6 +12,7 @@ type Props = {
   totalQuestions: number;
   speaking: boolean;
   outputAmplitude: number;
+  thinking: boolean;
   completed: boolean;
   scribeAvailable: boolean;
   showStartScreen: boolean;
@@ -19,6 +20,7 @@ type Props = {
   speakError: (text: string) => Promise<void> | void;
   submitValue: (value: string) => Promise<void>;
   onStart: () => void;
+  onInterrupt: () => void;
   onExit: () => void;
 };
 
@@ -28,6 +30,7 @@ export function VoiceMode({
   totalQuestions,
   speaking,
   outputAmplitude,
+  thinking,
   completed,
   scribeAvailable,
   showStartScreen,
@@ -35,6 +38,7 @@ export function VoiceMode({
   speakError,
   submitValue,
   onStart,
+  onInterrupt,
   onExit
 }: Props) {
   const [started, setStarted] = useState(!showStartScreen);
@@ -166,11 +170,13 @@ export function VoiceMode({
   const blobState: BlobState =
     speaking
       ? "speaking"
-      : recorder.state === "recording"
-        ? "listening"
-        : recorder.state === "transcribing" || submitting
-          ? "thinking"
-          : "idle";
+      : thinking
+        ? "thinking"
+        : recorder.state === "recording"
+          ? "listening"
+          : recorder.state === "transcribing" || submitting
+            ? "thinking"
+            : "idle";
 
   const blobAmplitude = speaking
     ? outputAmplitude
@@ -181,6 +187,7 @@ export function VoiceMode({
   const statusLine = computeStatusLine({
     started,
     speaking,
+    thinking,
     recorderState: recorder.state,
     submitting,
     completed,
@@ -234,9 +241,14 @@ export function VoiceMode({
           </div>
         ) : (
           <>
-            <div className="voice-mode-blob-wrap">
+            <button
+              className="voice-mode-blob-wrap"
+              onClick={speaking ? onInterrupt : undefined}
+              aria-label={speaking ? "Tap to interrupt Zuzu" : undefined}
+              style={{ cursor: speaking ? "pointer" : "default", background: "none", border: "none", padding: 0 }}
+            >
               <ZuzuBlob state={blobState} amplitude={blobAmplitude} />
-            </div>
+            </button>
 
             <p className="voice-mode-counter">
               {completed ? "All done" : `Question ${questionNumber} of ${totalQuestions}`}
@@ -345,6 +357,7 @@ export function VoiceMode({
 function computeStatusLine({
   started,
   speaking,
+  thinking,
   recorderState,
   submitting,
   completed,
@@ -356,6 +369,7 @@ function computeStatusLine({
 }: {
   started: boolean;
   speaking: boolean;
+  thinking: boolean;
   recorderState: "idle" | "recording" | "transcribing";
   submitting: boolean;
   completed: boolean;
@@ -368,7 +382,8 @@ function computeStatusLine({
   if (!started) return "";
   if (!scribeAvailable) return "Scribe is offline. Type instead.";
   if (completed) return "Application's in. Tail high.";
-  if (speaking) return "Zuzu is asking…";
+  if (speaking) return "Tap the blob to interrupt.";
+  if (thinking) return "Zuzu is reading between the lines…";
   if (needsInputModal) {
     if (showInputModal) return "Type it in — Zuzu can't sniff URLs.";
     if (submitting) return "Trotting it over to the chat…";

@@ -35,6 +35,7 @@ type ConfigState = "loading" | "ready" | "error";
 const MUTE_STORAGE_KEY = "zuzu:muted";
 const DRAFT_STORAGE_KEY = "zuzu:draft";
 const ANSWERS_STORAGE_KEY = "zuzu:answers";
+const SUBMITTED_STORAGE_KEY = "zuzu:submitted";
 
 export function ZuzuAgent() {
   const [index, setIndex] = useState(0);
@@ -47,7 +48,10 @@ export function ZuzuAgent() {
   const [submitting, setSubmitting] = useState(false);
   const [voiceModeOpen, setVoiceModeOpen] = useState(false);
   const [voiceModeShowStart, setVoiceModeShowStart] = useState(false);
+  const [thinking, setThinking] = useState(false);
+  const [alreadySubmitted, setAlreadySubmitted] = useState(false);
   const autoOpenedRef = useRef(false);
+  const partialSavedRef = useRef(false);
   const [configState, setConfigState] = useState<ConfigState>("loading");
   const [config, setConfig] = useState<AppConfig>({
     elevenLabsConfigured: false,
@@ -126,6 +130,10 @@ export function ZuzuAgent() {
 
       const storedDraft = window.localStorage.getItem(DRAFT_STORAGE_KEY);
       if (storedDraft) setDraft(storedDraft);
+
+      if (window.localStorage.getItem(SUBMITTED_STORAGE_KEY) === "1") {
+        setAlreadySubmitted(true);
+      }
     } catch {
       // localStorage unavailable; continue.
     }
@@ -234,28 +242,54 @@ export function ZuzuAgent() {
 
       try {
         if (currentIndex < questions.length - 1) {
-          const { display: reactionDisplay, spoken: reactionSpoken } = getReaction(question.key, value);
+          const nextIndex = currentIndex + 1;
+          const nextQuestion = questions[nextIndex];
+
+          setThinking(true);
+          const aiReaction = await fetchReaction({
+            key: question.key,
+            question: question.prompt,
+            answer: value,
+            name: answersRef.current.name || undefined,
+            priorAnswers: answersRef.current,
+            nextQuestionBase: nextQuestion.prompt
+          });
+          setThinking(false);
+
+          const { display: reactionDisplay, spoken: reactionSpoken } = aiReaction ?? getReaction(question.key, value);
+          const spokenNextQuestion = aiReaction?.nextQuestion ?? nextQuestion.prompt;
+
           addMessage("zuzu", reactionDisplay);
           await voice.speak(
             withMood(reactionMood(question.key, value), reactionSpoken),
             shouldBark(question.key)
           );
-          const nextIndex = currentIndex + 1;
-          setIndex(nextIndex);
+
           await delay(280);
-          const nextQuestion = questions[nextIndex];
-          addMessage("zuzu", nextQuestion.prompt);
+          setIndex(nextIndex);
+          addMessage("zuzu", spokenNextQuestion);
           await voice.speak(
-            withMood(questionMood(nextQuestion.key), nextQuestion.prompt),
+            withMood(questionMood(nextQuestion.key), spokenNextQuestion),
             nextQuestion.key === "video"
           );
           textareaRef.current?.focus();
+
+          // Background partial save after motivation (Q4) — never lose a half-finished application
+          if (currentIndex === 3 && !partialSavedRef.current) {
+            partialSavedRef.current = true;
+            void fetch("/api/applications", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ answers: nextAnswers, partial: true })
+            });
+          }
           return;
         }
 
         setCompleted(true);
         await finishApplication(nextAnswers);
       } finally {
+        setThinking(false);
         submitInFlightRef.current = false;
       }
     },
@@ -359,9 +393,20 @@ export function ZuzuAgent() {
     try {
       window.localStorage.removeItem(DRAFT_STORAGE_KEY);
       window.localStorage.removeItem(ANSWERS_STORAGE_KEY);
+      window.localStorage.setItem(SUBMITTED_STORAGE_KEY, "1");
     } catch {
       /* ignore */
     }
+  }
+
+  function resetAndStartFresh() {
+    if (typeof window === "undefined") return;
+    try {
+      [MUTE_STORAGE_KEY, DRAFT_STORAGE_KEY, ANSWERS_STORAGE_KEY, SUBMITTED_STORAGE_KEY].forEach(
+        (k) => window.localStorage.removeItem(k)
+      );
+    } catch { /* ignore */ }
+    window.location.reload();
   }
 
   function toggleComposerRecorder() {
@@ -473,6 +518,15 @@ export function ZuzuAgent() {
         {configState === "error" && (
           <div className="banner banner-error" role="alert">
             Zuzu can't reach the kennel right now. Voice and submission may misbehave — give the page a refresh.
+          </div>
+        )}
+
+        {alreadySubmitted && !completed && (
+          <div className="banner banner-submitted" role="alert">
+            Zuzu already sniffed your application once.{" "}
+            <button className="banner-link" onClick={resetAndStartFresh}>
+              Start fresh anyway
+            </button>
           </div>
         )}
 
@@ -606,6 +660,7 @@ export function ZuzuAgent() {
           totalQuestions={questions.length}
           speaking={voice.speaking}
           outputAmplitude={voice.outputAmplitude}
+          thinking={thinking}
           completed={completed}
           scribeAvailable={config.scribeConfigured}
           showStartScreen={voiceModeShowStart}
@@ -613,6 +668,7 @@ export function ZuzuAgent() {
           speakError={speakError}
           submitValue={submitValue}
           onStart={handleVoiceModeStart}
+          onInterrupt={voice.cancel}
           onExit={() => setVoiceModeOpen(false)}
         />
       )}
@@ -679,6 +735,36 @@ function getReaction(key: keyof Answers, value: string): Reaction {
 
 function shouldBark(key: keyof Answers) {
   return key === "name" || key === "motivation" || key === "availability";
+}
+
+async function fetchReaction({
+  key,
+  question,
+  answer,
+  name,
+  priorAnswers,
+  nextQuestionBase
+}: {
+  key: string;
+  question: string;
+  answer: string;
+  name?: string;
+  priorAnswers?: Answers;
+  nextQuestionBase?: string;
+}): Promise<(Reaction & { nextQuestion?: string }) | null> {
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, question, answer, name, priorAnswers, nextQuestionBase })
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { reaction?: string; nextQuestion?: string };
+    if (!data.reaction) return null;
+    return { display: data.reaction, spoken: data.reaction, nextQuestion: data.nextQuestion };
+  } catch {
+    return null;
+  }
 }
 
 function delay(ms: number) {

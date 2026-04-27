@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { ipFrom, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -14,6 +15,7 @@ type ApplicationBody = {
   answers?: Record<string, string>;
   transcript?: TranscriptItem[];
   userAgent?: string;
+  partial?: boolean;
 };
 
 type Application = {
@@ -33,14 +35,22 @@ type Application = {
 const FALLBACK_PATH = path.join(process.cwd(), "data", "applications.jsonl");
 
 export async function POST(request: Request) {
+  const ip = ipFrom(request);
+  if (!rateLimit(`applications:${ip}`, 5, 60_000)) {
+    return NextResponse.json({ error: "Too many submissions. Try again in a minute." }, { status: 429 });
+  }
+
   const body = (await request.json().catch(() => null)) as ApplicationBody | null;
 
   if (!body?.answers) {
     return NextResponse.json({ error: "Missing application answers." }, { status: 400 });
   }
 
+  const partial = body.partial === true;
   const application = normalizeApplication(body);
-  const vetting = scoreApplication(application);
+  const vetting = partial
+    ? { score: 0, status: "Partial", nextStep: "" }
+    : scoreApplication(application);
   const notionConfigured = Boolean(process.env.NOTION_API_KEY && process.env.NOTION_DATABASE_ID);
   let notionPageId: string | null = null;
   let notionError: string | null = null;
@@ -57,6 +67,11 @@ export async function POST(request: Request) {
 
   if (!notionConfigured || notionError) {
     savedLocally = await appendFallback(application, vetting);
+  }
+
+  // Partial saves are fire-and-forget — don't block the client
+  if (partial) {
+    return NextResponse.json({ ok: true, partial: true });
   }
 
   if (notionError && !savedLocally) {
@@ -261,3 +276,4 @@ function richText(text: string) {
 function select(name: string) {
   return { select: { name } };
 }
+

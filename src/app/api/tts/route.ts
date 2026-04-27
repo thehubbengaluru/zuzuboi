@@ -35,9 +35,9 @@ export async function POST(request: Request) {
       text,
       model_id: modelId,
       voice_settings: {
-        stability: 0.48,
-        similarity_boost: 0.74,
-        style: 0.35,
+        stability: 0.32,
+        similarity_boost: 0.80,
+        style: 0.62,
         use_speaker_boost: true
       }
     })
