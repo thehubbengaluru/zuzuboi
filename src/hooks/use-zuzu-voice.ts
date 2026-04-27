@@ -14,14 +14,23 @@ type Options = {
   onElevenLabsFailure: () => void;
 };
 
-const AUDIO_TIMEOUT_MS = 12000;
+export type BarkType = "happy" | "excited" | "celebrate" | "video";
+
+const BARK_PROMPTS: Record<BarkType, string> = {
+  happy:     "small golden retriever puppy, single warm friendly bark, welcoming, clean studio",
+  excited:   "excited dog barking twice, two quick energetic yips, enthusiastic impressed reaction, studio",
+  celebrate: "joyful dog celebration howl then barks, tail-wagging jubilant, festive happy sound",
+  video:     "curious dog whimper then short bark, inquisitive investigative sniff, playful friendly"
+};
+
+const AUDIO_TIMEOUT_MS = 90000;
 
 export function useZuzuVoice({ elevenLabsConfigured, muted, onElevenLabsFailure }: Options) {
   const [voiceStatus, setVoiceStatus] = useState("voice ready");
   const [speaking, setSpeaking] = useState(false);
   const [outputAmplitude, setOutputAmplitude] = useState(0);
 
-  const barkUrlRef = useRef<string | null>(null);
+  const barkCacheRef = useRef<Map<BarkType, string>>(new Map());
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const mountedRef = useRef(true);
@@ -30,10 +39,8 @@ export function useZuzuVoice({ elevenLabsConfigured, muted, onElevenLabsFailure 
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      if (barkUrlRef.current) {
-        URL.revokeObjectURL(barkUrlRef.current);
-        barkUrlRef.current = null;
-      }
+      barkCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
+      barkCacheRef.current.clear();
       if (audioContextRef.current) {
         audioContextRef.current.close().catch(() => {});
         audioContextRef.current = null;
@@ -53,14 +60,14 @@ export function useZuzuVoice({ elevenLabsConfigured, muted, onElevenLabsFailure 
   }, [muted, elevenLabsConfigured]);
 
   const speak = useCallback(
-    async (text: string, includeBark = false) => {
+    async (text: string, barkType: BarkType | false = false) => {
       if (muted) return;
       setVoiceStatus("speaking");
       setSpeaking(true);
 
       try {
-        if (includeBark) {
-          await playBark(barkUrlRef, audioContextRef, analyserRef, setOutputAmplitude);
+        if (barkType) {
+          await playBark(barkCacheRef, barkType, audioContextRef, analyserRef, setOutputAmplitude);
           await delay(120);
         }
 
@@ -214,13 +221,22 @@ async function playWithAnalyser(
         startSyntheticPulse(setAmplitude, () => settled, (handle) => (rafHandle = handle));
       }
 
+      // Dynamic timeout: use actual audio duration once metadata loads, fall back to AUDIO_TIMEOUT_MS
+      let safetyTimeout = window.setTimeout(() => finish(), AUDIO_TIMEOUT_MS);
+      audio.addEventListener("loadedmetadata", () => {
+        if (isFinite(audio.duration) && audio.duration > 0) {
+          clearTimeout(safetyTimeout);
+          safetyTimeout = window.setTimeout(() => finish(), audio.duration * 1000 + 6000);
+        }
+      }, { once: true });
+
       try {
         await audio.play();
       } catch (err) {
+        clearTimeout(safetyTimeout);
         finish(err);
         return;
       }
-      window.setTimeout(() => finish(), AUDIO_TIMEOUT_MS);
     })();
   });
 }
@@ -270,12 +286,13 @@ function startSyntheticPulse(
 }
 
 async function playBark(
-  barkUrlRef: { current: string | null },
+  barkCacheRef: { current: Map<BarkType, string> },
+  barkType: BarkType,
   audioContextRef: { current: AudioContext | null },
   analyserRef: { current: AnalyserNode | null },
   setAmplitude: (value: number) => void
 ) {
-  const generated = await playGeneratedBark(barkUrlRef, audioContextRef, analyserRef, setAmplitude);
+  const generated = await playGeneratedBark(barkCacheRef, barkType, audioContextRef, analyserRef, setAmplitude);
   if (generated) return;
 
   try {
@@ -314,28 +331,28 @@ async function playBark(
 }
 
 async function playGeneratedBark(
-  barkUrlRef: { current: string | null },
+  barkCacheRef: { current: Map<BarkType, string> },
+  barkType: BarkType,
   audioContextRef: { current: AudioContext | null },
   analyserRef: { current: AnalyserNode | null },
   setAmplitude: (value: number) => void
 ) {
   try {
-    if (barkUrlRef.current) {
-      await playWithAnalyser(barkUrlRef.current, audioContextRef, analyserRef, setAmplitude);
+    const cached = barkCacheRef.current.get(barkType);
+    if (cached) {
+      await playWithAnalyser(cached, audioContextRef, analyserRef, setAmplitude);
       return true;
     }
     const response = await fetch("/api/sfx", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        prompt:
-          "small happy dog bark, playful and warm, one-shot, clean studio sound, friendly application assistant"
-      })
+      body: JSON.stringify({ prompt: BARK_PROMPTS[barkType] })
     });
     if (!response.ok) return false;
     const blob = await response.blob();
-    barkUrlRef.current = URL.createObjectURL(blob);
-    await playWithAnalyser(barkUrlRef.current, audioContextRef, analyserRef, setAmplitude);
+    const url = URL.createObjectURL(blob);
+    barkCacheRef.current.set(barkType, url);
+    await playWithAnalyser(url, audioContextRef, analyserRef, setAmplitude);
     return true;
   } catch {
     return false;

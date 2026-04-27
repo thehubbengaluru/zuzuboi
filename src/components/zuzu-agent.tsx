@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type Answers, emptyAnswers, questions } from "@/config/questions";
 import { useRecorder } from "@/hooks/use-recorder";
-import { useZuzuVoice } from "@/hooks/use-zuzu-voice";
+import { useZuzuVoice, type BarkType } from "@/hooks/use-zuzu-voice";
 import { validateAnswer } from "@/lib/validation";
 import { questionMood, reactionMood, resultMood, withMood } from "@/lib/voice-mood";
 import { VoiceMode } from "./voice-mode";
@@ -50,6 +50,7 @@ export function ZuzuAgent() {
   const [voiceModeShowStart, setVoiceModeShowStart] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const autoOpenedRef = useRef(false);
   const partialSavedRef = useRef(false);
   const [configState, setConfigState] = useState<ConfigState>("loading");
@@ -199,7 +200,7 @@ export function ZuzuAgent() {
     if (!config.scribeConfigured) {
       void voice.speak(
         withMood(questionMood(startQuestion.key), startQuestion.prompt),
-        indexRef.current === 0
+        indexRef.current === 0 ? "happy" : false
       );
     }
   }, [configState, config.scribeConfigured, voice]);
@@ -217,7 +218,7 @@ export function ZuzuAgent() {
   const handleVoiceModeStart = useCallback(() => {
     voice.primeAudioContext();
     const q = questions[indexRef.current];
-    void voice.speak(withMood(questionMood(q.key), q.prompt), indexRef.current === 0);
+    void voice.speak(withMood(questionMood(q.key), q.prompt), indexRef.current === 0 ? "happy" : false);
   }, [voice]);
 
   function addMessage(role: TranscriptItem["role"], text: string) {
@@ -262,7 +263,7 @@ export function ZuzuAgent() {
           addMessage("zuzu", reactionDisplay);
           await voice.speak(
             withMood(reactionMood(question.key, value), reactionSpoken),
-            shouldBark(question.key)
+            getBarkType(question.key)
           );
 
           await delay(280);
@@ -270,7 +271,7 @@ export function ZuzuAgent() {
           addMessage("zuzu", spokenNextQuestion);
           await voice.speak(
             withMood(questionMood(nextQuestion.key), spokenNextQuestion),
-            nextQuestion.key === "video"
+            nextQuestion.key === "video" ? "video" : false
           );
           textareaRef.current?.focus();
 
@@ -317,7 +318,7 @@ export function ZuzuAgent() {
     addMessage("zuzu", summary);
     await voice.speak(
       withMood("excited", "Tail high. I'm trotting this over to the hoomans now."),
-      true
+      "celebrate"
     );
 
     try {
@@ -349,8 +350,10 @@ export function ZuzuAgent() {
 
       const finalMessage = composeFinalMessage(result);
       addMessage("zuzu", finalMessage);
-      await voice.speak(withMood(resultMood(result), finalMessage), true);
+      await voice.speak(withMood(resultMood(result), finalMessage), "celebrate");
       clearStoredProgress();
+      setVoiceModeOpen(false);
+      setShowSuccessModal(true);
     } catch (error) {
       const detail = error instanceof Error ? error.message : "unknown error";
       const message = `Zuzu caught the application, but the door slammed shut (${detail}). Give it a minute and try again, hooman.`;
@@ -372,7 +375,7 @@ export function ZuzuAgent() {
     notionError?: string | null;
     savedLocally?: boolean;
   }) {
-    const head = `${result.nextStep ?? "Application's in."} Tail-wag score: ${result.score ?? "?"}.`;
+    const head = result.nextStep ?? "Application's in.";
     if (result.notionConfigured && !result.notionError) {
       return `${head} Filed away in Notion. Tail high.`;
     }
@@ -599,6 +602,14 @@ export function ZuzuAgent() {
               placeholder={currentQuestion.hint}
               value={draft}
               onChange={(event) => onDraftChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  if (!composerDisabled && draft.trim()) {
+                    event.currentTarget.form?.requestSubmit();
+                  }
+                }
+              }}
               disabled={composerDisabled}
               aria-invalid={Boolean(draftError)}
               aria-describedby={draftError ? "draft-error" : undefined}
@@ -652,6 +663,34 @@ export function ZuzuAgent() {
           <p>Tap the sparkle to go full voice. Talk to Zuzu, watch the blob breathe, hear the bark. Or stay here and type — Zuzu doesn't judge. Much.</p>
         </div>
       </aside>
+
+      {showSuccessModal && (
+        <div
+          className="success-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Application submitted"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowSuccessModal(false); }}
+        >
+          <div className="success-modal-card">
+            <div className="success-modal-portrait">
+              <img src="/zuzu.jpg" alt="Zuzu" />
+            </div>
+            <p className="success-modal-eyebrow">Sniff successful</p>
+            <h2 className="success-modal-title">Your application is with the humans of The Hub.</h2>
+            <p className="success-modal-body">
+              We'll go through it and send you a confirmation. Keep building — Zuzu's got your back.
+            </p>
+            <button
+              type="button"
+              className="success-modal-close"
+              onClick={() => setShowSuccessModal(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {voiceModeOpen && (
         <VoiceMode
@@ -733,8 +772,13 @@ function getReaction(key: keyof Answers, value: string): Reaction {
   return reactions[key] ?? { display: "Noted.", spoken: "Noted." };
 }
 
-function shouldBark(key: keyof Answers) {
-  return key === "name" || key === "motivation" || key === "availability";
+function getBarkType(key: keyof Answers): BarkType | false {
+  const map: Partial<Record<keyof Answers, BarkType>> = {
+    name: "happy",
+    motivation: "excited",
+    availability: "celebrate"
+  };
+  return map[key] ?? false;
 }
 
 async function fetchReaction({

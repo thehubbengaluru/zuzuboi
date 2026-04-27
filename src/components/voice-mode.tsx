@@ -245,7 +245,7 @@ export function VoiceMode({
               className="voice-mode-blob-wrap"
               onClick={speaking ? onInterrupt : undefined}
               aria-label={speaking ? "Tap to interrupt Zuzu" : undefined}
-              style={{ cursor: speaking ? "pointer" : "default", background: "none", border: "none", padding: 0 }}
+              style={{ background: "none", border: "none", padding: 0 }}
             >
               <ZuzuBlob state={blobState} amplitude={blobAmplitude} />
             </button>

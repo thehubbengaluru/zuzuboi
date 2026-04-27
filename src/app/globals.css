@@ -57,6 +57,45 @@
   box-sizing: border-box;
 }
 
+/* ---- Custom paw cursor ---- */
+/* Golden paw: default state */
+html,
+body,
+* {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Ccircle cx='8' cy='15' r='4' fill='%23f5c36b' stroke='%231b1611' stroke-width='1.5'/%3E%3Ccircle cx='14' cy='11' r='4' fill='%23f5c36b' stroke='%231b1611' stroke-width='1.5'/%3E%3Ccircle cx='20' cy='11' r='4' fill='%23f5c36b' stroke='%231b1611' stroke-width='1.5'/%3E%3Ccircle cx='26' cy='15' r='3.5' fill='%23f5c36b' stroke='%231b1611' stroke-width='1.5'/%3E%3Cellipse cx='17' cy='24' rx='8.5' ry='6.5' fill='%23f5c36b' stroke='%231b1611' stroke-width='1.5'/%3E%3C/svg%3E") 16 20, auto;
+}
+
+/* Blue paw: pointer state on interactive elements */
+a,
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+label,
+select,
+.banner-link,
+.voice-mode-mic:not(:disabled),
+.voice-mode-secondary,
+.voice-mode-exit,
+.send-button:not(:disabled),
+.voice-button:not(:disabled),
+.icon-button:not(:disabled),
+.success-modal-close,
+.voice-mode-blob-wrap[style*="pointer"] {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Ccircle cx='8' cy='15' r='4' fill='%231a5fcf' stroke='%23144baa' stroke-width='1.5'/%3E%3Ccircle cx='14' cy='11' r='4' fill='%231a5fcf' stroke='%23144baa' stroke-width='1.5'/%3E%3Ccircle cx='20' cy='11' r='4' fill='%231a5fcf' stroke='%23144baa' stroke-width='1.5'/%3E%3Ccircle cx='26' cy='15' r='3.5' fill='%231a5fcf' stroke='%23144baa' stroke-width='1.5'/%3E%3Cellipse cx='17' cy='24' rx='8.5' ry='6.5' fill='%231a5fcf' stroke='%23144baa' stroke-width='1.5'/%3E%3C/svg%3E") 16 20, pointer;
+}
+
+/* Keep system not-allowed on disabled elements */
+button:disabled,
+textarea:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+/* Text cursor inside text inputs */
+textarea,
+input {
+  cursor: text;
+}
+
 html,
 body {
   height: 100%;
@@ -1109,4 +1148,100 @@ textarea::placeholder {
     width: 240px;
     height: 240px;
   }
+}
+
+/* Success / completion modal */
+.success-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(8, 23, 46, 0.72);
+  backdrop-filter: blur(10px);
+  animation: voice-mode-fade 220ms ease;
+}
+
+.success-modal-card {
+  width: min(480px, 100%);
+  padding: 0 0 36px;
+  background: var(--surface-raised);
+  border: 1.5px solid var(--line);
+  border-radius: 28px;
+  box-shadow: var(--shadow-soft);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  overflow: hidden;
+  animation: modal-pop-in 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.success-modal-portrait {
+  width: 100%;
+  height: 200px;
+  background: linear-gradient(160deg, var(--brand) 0%, var(--brand-strong) 100%);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 0;
+  position: relative;
+}
+
+.success-modal-portrait img {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: 56% 40%;
+  border: 4px solid var(--accent-warm);
+  box-shadow: 0 0 0 6px rgba(245, 195, 107, 0.25), var(--shadow-soft);
+  position: absolute;
+  bottom: -50px;
+}
+
+.success-modal-eyebrow {
+  margin: 68px 0 8px;
+  color: var(--brand);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.success-modal-title {
+  margin: 0 28px 12px;
+  font-size: clamp(1.3rem, 3vw, 1.6rem);
+  line-height: 1.18;
+}
+
+.success-modal-body {
+  margin: 0 28px 28px;
+  color: var(--fg-secondary);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.success-modal-close {
+  padding: 14px 40px;
+  border: 2px solid var(--fg-primary);
+  border-radius: var(--radius-pill);
+  background: var(--accent-warm);
+  color: var(--fg-primary);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  box-shadow: var(--shadow-hard);
+  transition: transform 120ms ease, box-shadow 160ms ease;
+}
+
+.success-modal-close:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--fg-primary);
+}
+
+.success-modal-close:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--fg-primary);
 }
