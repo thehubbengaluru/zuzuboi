@@ -100,6 +100,7 @@ html,
 body {
   height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 body {
@@ -356,7 +357,7 @@ h2 {
 }
 
 h1 {
-  font-size: clamp(1.45rem, 2.2vw, 1.85rem);
+  font-size: clamp(1rem, 4.5vw, 1.85rem);
   font-weight: 700;
 }
 
@@ -524,6 +525,7 @@ h2 {
   flex-direction: column;
   gap: 14px;
   scroll-behavior: smooth;
+  overscroll-behavior: contain;
 }
 
 .chat-empty {
@@ -1253,11 +1255,15 @@ textarea::placeholder {
   .app-shell {
     width: min(100vw - 18px, 760px);
     grid-template-columns: 1fr;
-    padding: 9px 0;
+    padding: max(9px, env(safe-area-inset-top)) 0 max(9px, env(safe-area-inset-bottom));
   }
 
   .side-panel {
     display: none;
+  }
+
+  .composer {
+    padding-bottom: max(16px, calc(env(safe-area-inset-bottom) + 8px));
   }
 }
 
@@ -1279,12 +1285,45 @@ textarea::placeholder {
     font-size: 0.78rem;
   }
 
+  .brand-lockup {
+    gap: 10px;
+  }
+
+  .zuzu-portrait {
+    width: 48px;
+    height: 48px;
+  }
+
   .composer {
     grid-template-columns: 1fr auto;
   }
 
   .voice-button {
     grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 480px) {
+  .pill {
+    display: none;
+  }
+
+  .brand-lockup {
+    gap: 8px;
+  }
+
+  .zuzu-portrait {
+    width: 42px;
+    height: 42px;
+  }
+
+  .voice-mode-inner {
+    padding: 16px 12px;
+  }
+
+  .voice-mode-blob-wrap {
+    width: 200px;
+    height: 200px;
   }
 }
 
